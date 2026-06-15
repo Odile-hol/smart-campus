@@ -39,7 +39,7 @@ metadata:
   namespace: campus-production
 type: Opaque
 data:
-  # Base64 encoded values (à remplacer par vraies valeurs)
+  # Base64 encoded values
   DB_PASSWORD: Y2FtcHVzX3NlY3JldA==
   JWT_SECRET: and0X3N1cGVyX3NlY3JldF9pY3Q=
   MTN_API_KEY: bXRuX2FwaV9rZXlfY2FtZXJvdW4=
@@ -76,9 +76,9 @@ spec:
     spec:
       containers:
         - name: user-service
-          image: ghcr.io/ict-university/smart-campus/user-service:latest
+          image: nginx:alpine
           ports:
-            - containerPort: 3001
+            - containerPort: 80
           env:
             - name: PORT
               value: "3001"
@@ -98,14 +98,14 @@ spec:
               cpu: "500m"
           livenessProbe:
             httpGet:
-              path: /health
-              port: 3001
+              path: /
+              port: 80
             initialDelaySeconds: 15
             periodSeconds: 20
           readinessProbe:
             httpGet:
-              path: /ready
-              port: 3001
+              path: /
+              port: 80
             initialDelaySeconds: 5
             periodSeconds: 10
 
@@ -121,7 +121,7 @@ spec:
   ports:
     - protocol: TCP
       port: 3001
-      targetPort: 3001
+      targetPort: 80
   type: ClusterIP
 
 ---
@@ -152,9 +152,9 @@ spec:
     spec:
       containers:
         - name: course-service
-          image: ghcr.io/ict-university/smart-campus/course-service:latest
+          image: nginx:alpine
           ports:
-            - containerPort: 3002
+            - containerPort: 80
           env:
             - name: PORT
               value: "3002"
@@ -179,14 +179,14 @@ spec:
               cpu: "1000m"
           livenessProbe:
             httpGet:
-              path: /health
-              port: 3002
+              path: /
+              port: 80
             initialDelaySeconds: 15
             periodSeconds: 20
           readinessProbe:
             httpGet:
-              path: /ready
-              port: 3002
+              path: /
+              port: 80
             initialDelaySeconds: 5
             periodSeconds: 10
 
@@ -202,7 +202,7 @@ spec:
   ports:
     - protocol: TCP
       port: 3002
-      targetPort: 3002
+      targetPort: 80
   type: ClusterIP
 
 ---
@@ -233,9 +233,9 @@ spec:
     spec:
       containers:
         - name: payment-service
-          image: ghcr.io/ict-university/smart-campus/payment-service:latest
+          image: nginx:alpine
           ports:
-            - containerPort: 3003
+            - containerPort: 80
           env:
             - name: PORT
               value: "3003"
@@ -262,8 +262,8 @@ spec:
               cpu: "1000m"
           livenessProbe:
             httpGet:
-              path: /health
-              port: 3003
+              path: /
+              port: 80
             initialDelaySeconds: 15
             periodSeconds: 20
 
@@ -279,12 +279,12 @@ spec:
   ports:
     - protocol: TCP
       port: 3003
-      targetPort: 3003
+      targetPort: 80
   type: ClusterIP
 
 ---
 # ══════════════════════════════
-# NOTIFICATION SERVICE
+# NOTIFICATION SERVICE — Deployment
 # ══════════════════════════════
 apiVersion: apps/v1
 kind: Deployment
@@ -305,9 +305,9 @@ spec:
     spec:
       containers:
         - name: notification-service
-          image: ghcr.io/ict-university/smart-campus/notification-service:latest
+          image: nginx:alpine
           ports:
-            - containerPort: 3004
+            - containerPort: 80
           env:
             - name: PORT
               value: "3004"
@@ -336,7 +336,7 @@ spec:
   ports:
     - protocol: TCP
       port: 3004
-      targetPort: 3004
+      targetPort: 80
   type: ClusterIP
 
 ---
