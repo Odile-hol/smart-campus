@@ -1,0 +1,818 @@
+openapi: 3.0.3
+info:
+  title: "🎓 Smart Campus Communication Platform API"
+  description: |
+    # Plateforme Campus Intelligent — ICT University Cameroun
+
+    Système conçu pour les universités du Cameroun avec support de :
+    - 🔐 **Authentification JWT sécurisée** (tokens 24h + refresh 7j)
+    - 📚 **Gestion des cours** et inscriptions en temps réel
+    - 💳 **Paiements Mobile Money** (MTN Mobile Money · Orange Money)
+    - 📩 **Notifications multicanaux** (SMS · Email · Push) via RabbitMQ
+
+    ---
+
+    ## ⚙️ Contraintes techniques Cameroun
+    | Contrainte | Solution |
+    |---|---|
+    | Connexion intermittente | Mode offline mobile + sync différée |
+    | Forte charge pics inscription | Redis cache + Load Balancing NGINX |
+    | 10 000 utilisateurs simultanés | Auto-scaling Kubernetes |
+    | Mobile Money local | MTN MoMo + Orange Money API |
+
+    ---
+
+    ## 🔐 Authentification
+    Tous les endpoints protégés nécessitent un **JWT Bearer Token**.
+    Obtenez-le via `POST /auth/login`, puis ajoutez-le dans chaque requête :
+    ```
+    Authorization: Bearer <votre_token_jwt>
+    ```
+
+    ---
+
+    ## 📡 Environnements
+    - **Production** : `https://api.smartcampus.cm/v1`
+    - **Staging** : `https://staging.smartcampus.cm/v1`
+
+  version: "1.0.0"
+  contact:
+    name: "Dr Fosso — ICT University"
+    email: "admin@ict-university.cm"
+    url: "https://ict-university.cm"
+  license:
+    name: "ICT University © 2025"
+    url: "https://ict-university.cm/license"
+  x-logo:
+    url: "https://ict-university.cm/logo.png"
+    altText: "ICT University Logo"
+
+servers:
+  - url: https://api.smartcampus.cm/v1
+    description: "🟢 Production Server"
+  - url: https://staging.smartcampus.cm/v1
+    description: "🟡 Staging Server"
+  - url: http://localhost:3000/v1
+    description: "🔵 Local Development"
+
+# ─────────────────────────────────────────
+# SECURITY SCHEMES
+# ─────────────────────────────────────────
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        ### JWT Token
+        Obtenez votre token via `POST /auth/login`.
+
+        **Format header :**
+        ```
+        Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        ```
+
+        **Durée de validité :**
+        - Access Token : 24 heures
+        - Refresh Token : 7 jours
+
+  schemas:
+
+    # ── AUTH ──
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          example: jean.dupont@ict-university.cm
+          description: "Adresse email universitaire"
+        password:
+          type: string
+          format: password
+          example: "Secure@2025"
+          description: "Mot de passe (min. 8 caractères)"
+
+    LoginResponse:
+      type: object
+      properties:
+        access_token:
+          type: string
+          example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+          description: "JWT token valide 24 heures"
+        refresh_token:
+          type: string
+          example: "dGhpcyBpcyBhIHJlZnJlc2ggdG9rZW4..."
+          description: "Refresh token valide 7 jours"
+        token_type:
+          type: string
+          example: Bearer
+        expires_in:
+          type: integer
+          example: 86400
+          description: "Expiration en secondes (86400 = 24h)"
+        user:
+          $ref: '#/components/schemas/User'
+
+    # ── USER ──
+    User:
+      type: object
+      description: "Représente un utilisateur de la plateforme"
+      properties:
+        user_id:
+          type: string
+          example: "STU-2025-001"
+          description: "Identifiant unique de l'utilisateur"
+        full_name:
+          type: string
+          example: "Jean Dupont"
+        email:
+          type: string
+          example: "jean.dupont@ict-university.cm"
+        phone:
+          type: string
+          example: "+237691234567"
+          description: "Numéro Cameroun format +237XXXXXXXXX"
+        role:
+          type: string
+          enum: [student, lecturer, admin]
+          example: student
+          description: "Rôle détermine les permissions d'accès"
+        created_at:
+          type: string
+          format: date-time
+
+    RegisterRequest:
+      type: object
+      required: [full_name, email, password, phone, role]
+      properties:
+        full_name:
+          type: string
+          example: "Jean Dupont"
+        email:
+          type: string
+          format: email
+          example: "jean.dupont@ict-university.cm"
+        password:
+          type: string
+          format: password
+          example: "Secure@2025"
+          description: "Min. 8 caractères, 1 majuscule, 1 chiffre, 1 symbole"
+        phone:
+          type: string
+          example: "+237691234567"
+          description: "Utilisé pour Mobile Money et SMS"
+        role:
+          type: string
+          enum: [student, lecturer, admin]
+          description: "student = étudiant · lecturer = enseignant · admin = administration"
+
+    # ── COURSE ──
+    Course:
+      type: object
+      description: "Cours disponible dans le catalogue universitaire"
+      properties:
+        course_id:
+          type: string
+          example: "CSC-3211"
+        title:
+          type: string
+          example: "IT Infrastructure Management"
+        description:
+          type: string
+          example: "Design and management of IT infrastructure for universities."
+        lecturer_id:
+          type: string
+          example: "LEC-001"
+        credits:
+          type: integer
+          example: 3
+          description: "Nombre de crédits ECTS"
+        capacity:
+          type: integer
+          example: 120
+          description: "Capacité maximale du cours"
+        enrolled_count:
+          type: integer
+          example: 85
+          description: "Nombre d'étudiants inscrits actuellement"
+        semester:
+          type: string
+          example: "Spring2025"
+        status:
+          type: string
+          enum: [open, full, closed]
+          description: "open = places disponibles · full = complet · closed = inscriptions fermées"
+
+    EnrollRequest:
+      type: object
+      required: [course_id, semester]
+      properties:
+        course_id:
+          type: string
+          example: "CSC-3211"
+          description: "Identifiant du cours à rejoindre"
+        semester:
+          type: string
+          example: "Spring2025"
+          description: "Semestre d'inscription"
+
+    EnrollResponse:
+      type: object
+      properties:
+        enrollment_id:
+          type: string
+          example: "ENR-2025-789"
+        student_id:
+          type: string
+          example: "STU-2025-001"
+        course_id:
+          type: string
+          example: "CSC-3211"
+        status:
+          type: string
+          enum: [confirmed, pending, failed]
+          example: confirmed
+        enrolled_at:
+          type: string
+          format: date-time
+        message:
+          type: string
+          example: "Inscription confirmée. SMS envoyé au +237691234567."
+
+    # ── PAYMENT ──
+    PaymentInitRequest:
+      type: object
+      required: [amount, currency, phone_number, provider, description]
+      description: "Requête d'initiation d'un paiement Mobile Money"
+      properties:
+        amount:
+          type: number
+          example: 75000
+          description: "Montant en XAF (Francs CFA)"
+        currency:
+          type: string
+          example: "XAF"
+          description: "Devise — uniquement XAF supporté"
+        phone_number:
+          type: string
+          example: "+237671234567"
+          description: "Numéro MTN ou Orange pour confirmation"
+        provider:
+          type: string
+          enum: [mtn_mobile_money, orange_money]
+          example: mtn_mobile_money
+          description: "Opérateur Mobile Money Cameroun"
+        description:
+          type: string
+          example: "Frais inscription Spring2025 — CSC-3211"
+        enrollment_id:
+          type: string
+          example: "ENR-2025-789"
+          description: "Lien avec l'inscription concernée"
+
+    PaymentResponse:
+      type: object
+      properties:
+        payment_id:
+          type: string
+          example: "PAY-2025-456"
+        status:
+          type: string
+          enum: [pending, success, failed]
+          example: pending
+          description: "pending = en attente confirmation mobile"
+        amount:
+          type: number
+          example: 75000
+        currency:
+          type: string
+          example: "XAF"
+        provider:
+          type: string
+          example: "mtn_mobile_money"
+        transaction_ref:
+          type: string
+          example: "MTN-TXN-987654"
+          description: "Référence unique de la transaction"
+        message:
+          type: string
+          example: "Confirmez le paiement sur votre téléphone MTN."
+        created_at:
+          type: string
+          format: date-time
+
+    # ── NOTIFICATION ──
+    NotificationRequest:
+      type: object
+      required: [recipient_ids, channel, message]
+      description: "Envoi de notification multicanal via RabbitMQ"
+      properties:
+        recipient_ids:
+          type: array
+          items:
+            type: string
+          example: ["STU-2025-001", "STU-2025-002"]
+          description: "Liste des IDs destinataires"
+        channel:
+          type: array
+          items:
+            type: string
+            enum: [sms, email, push]
+          example: [sms, email]
+          description: "Canaux d'envoi (combinables)"
+        subject:
+          type: string
+          example: "Confirmation d'inscription — Spring 2025"
+          description: "Sujet (requis pour email)"
+        message:
+          type: string
+          example: "Votre inscription au cours CSC-3211 est confirmée."
+        priority:
+          type: string
+          enum: [low, normal, high]
+          example: normal
+          description: "high = traitement prioritaire dans la queue"
+
+    NotificationResponse:
+      type: object
+      properties:
+        notification_id:
+          type: string
+          example: "NOTIF-2025-321"
+        status:
+          type: string
+          enum: [queued, sent, failed]
+          example: queued
+          description: "queued = en attente traitement RabbitMQ"
+        recipient_count:
+          type: integer
+          example: 2
+        channels:
+          type: array
+          items:
+            type: string
+          example: [sms, email]
+        queued_at:
+          type: string
+          format: date-time
+
+    # ── ERROR ──
+    ErrorResponse:
+      type: object
+      description: "Format standard des erreurs API"
+      properties:
+        error:
+          type: string
+          example: "UNAUTHORIZED"
+        message:
+          type: string
+          example: "Token JWT invalide ou expiré. Reconnectez-vous."
+        status_code:
+          type: integer
+          example: 401
+        timestamp:
+          type: string
+          format: date-time
+
+# ─────────────────────────────────────────
+# PATHS
+# ─────────────────────────────────────────
+paths:
+
+  # ══════════════════════════════
+  # AUTH ENDPOINTS
+  # ══════════════════════════════
+  /auth/register:
+    post:
+      tags: [🔐 Authentication]
+      summary: "Créer un nouveau compte utilisateur"
+      description: |
+        Crée un compte étudiant, enseignant ou administrateur.
+
+        **Rôles disponibles :**
+        - `student` — accès cours, inscriptions, paiements
+        - `lecturer` — gestion cours, consultation listes
+        - `admin` — accès complet, envoi notifications globales
+
+        **Validation :** email unique, mot de passe sécurisé requis.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+            example:
+              full_name: "Jean Dupont"
+              email: "jean.dupont@ict-university.cm"
+              password: "Secure@2025"
+              phone: "+237691234567"
+              role: "student"
+      responses:
+        '201':
+          description: "✅ Compte créé avec succès"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          description: "❌ Données invalides"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: "❌ Email déjà utilisé"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/login:
+    post:
+      tags: [🔐 Authentication]
+      summary: "Se connecter et obtenir un JWT"
+      description: |
+        Authentifie les credentials et retourne un **JWT signé HS256**.
+
+        **Durées de validité :**
+        - `access_token` : 24 heures
+        - `refresh_token` : 7 jours
+
+        **Sécurité :** communication chiffrée TLS 1.3, mots de passe hachés bcrypt.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            example:
+              email: "jean.dupont@ict-university.cm"
+              password: "Secure@2025"
+      responses:
+        '200':
+          description: "✅ Connexion réussie — JWT retourné"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          description: "❌ Email ou mot de passe incorrect"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/refresh:
+    post:
+      tags: [🔐 Authentication]
+      summary: "Renouveler le JWT"
+      description: |
+        Génère un nouveau `access_token` à partir d'un `refresh_token` valide.
+        Utile pour maintenir la session sans reconnexion (mode mobile).
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: "✅ Nouveau token émis"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          description: "❌ Refresh token expiré ou invalide"
+
+  # ══════════════════════════════
+  # COURSE ENDPOINTS
+  # ══════════════════════════════
+  /courses:
+    get:
+      tags: [📚 Courses]
+      summary: "Liste des cours disponibles"
+      description: |
+        Retourne le catalogue des cours du semestre en cours.
+
+        **Performance :** résultats mis en cache **Redis 5 minutes**.
+        Le champ `cached: true` indique une réponse depuis le cache.
+
+        **Filtres disponibles :** semestre, statut, pagination.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: semester
+          in: query
+          description: "Filtrer par semestre"
+          schema:
+            type: string
+            example: "Spring2025"
+        - name: status
+          in: query
+          description: "Filtrer par disponibilité"
+          schema:
+            type: string
+            enum: [open, full, closed]
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          description: "Résultats par page (max 50)"
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: "✅ Liste des cours"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Course'
+                  total:
+                    type: integer
+                    example: 48
+                  page:
+                    type: integer
+                    example: 1
+                  cached:
+                    type: boolean
+                    example: true
+                    description: "true = réponse depuis Redis cache"
+        '401':
+          description: "❌ Token JWT manquant ou invalide"
+
+  /courses/enroll:
+    post:
+      tags: [📚 Courses]
+      summary: "S'inscrire à un cours"
+      description: |
+        Inscrit l'étudiant authentifié au cours spécifié.
+
+        **Flux complet :**
+        1. Validation JWT → identification étudiant
+        2. Vérification disponibilité places
+        3. Sauvegarde inscription en base Course DB
+        4. Publication événement `CourseRegistered` → RabbitMQ
+        5. Notification SMS + Email envoyée en asynchrone
+        6. Retour confirmation immédiate à l'étudiant
+
+        **Note :** la notification est asynchrone — l'inscription est confirmée
+        même si le service SMS est temporairement indisponible.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EnrollRequest'
+            example:
+              course_id: "CSC-3211"
+              semester: "Spring2025"
+      responses:
+        '201':
+          description: "✅ Inscription confirmée"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollResponse'
+        '400':
+          description: "❌ Cours complet ou déjà inscrit"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: "❌ JWT invalide"
+        '404':
+          description: "❌ Cours introuvable"
+
+  /courses/{course_id}:
+    get:
+      tags: [📚 Courses]
+      summary: "Détails d'un cours"
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: course_id
+          in: path
+          required: true
+          description: "Identifiant du cours (ex: CSC-3211)"
+          schema:
+            type: string
+            example: "CSC-3211"
+      responses:
+        '200':
+          description: "✅ Détails du cours"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Course'
+        '404':
+          description: "❌ Cours introuvable"
+
+  # ══════════════════════════════
+  # PAYMENT ENDPOINTS
+  # ══════════════════════════════
+  /payments/initiate:
+    post:
+      tags: [💳 Payments]
+      summary: "Initier un paiement Mobile Money"
+      description: |
+        Initie un paiement via **MTN Mobile Money** ou **Orange Money**.
+
+        **Processus :**
+        1. Requête envoyée à l'API Mobile Money de l'opérateur
+        2. Notification USSD envoyée sur le téléphone de l'étudiant
+        3. L'étudiant confirme en saisissant son PIN
+        4. Le statut passe de `pending` → `success`
+
+        **Sécurité :** double chiffrement TLS 1.3 + AES-256.
+        **Devise :** XAF (Francs CFA) uniquement.
+
+        ⚠️ Vérifiez le statut avec `GET /payments/{id}/status`.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentInitRequest'
+            example:
+              amount: 75000
+              currency: "XAF"
+              phone_number: "+237671234567"
+              provider: "mtn_mobile_money"
+              description: "Frais inscription Spring2025 — CSC-3211"
+              enrollment_id: "ENR-2025-789"
+      responses:
+        '202':
+          description: "⏳ Paiement initié — en attente confirmation mobile"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentResponse'
+        '400':
+          description: "❌ Données de paiement invalides"
+        '401':
+          description: "❌ Non autorisé"
+        '503':
+          description: "❌ Opérateur Mobile Money temporairement indisponible"
+
+  /payments/{payment_id}/status:
+    get:
+      tags: [💳 Payments]
+      summary: "Vérifier le statut d'un paiement"
+      description: |
+        Consulte l'état d'un paiement Mobile Money.
+
+        **Statuts possibles :**
+        - `pending` — en attente confirmation de l'utilisateur
+        - `success` — paiement validé par l'opérateur
+        - `failed` — échec ou timeout (après 5 minutes)
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: payment_id
+          in: path
+          required: true
+          schema:
+            type: string
+            example: "PAY-2025-456"
+      responses:
+        '200':
+          description: "✅ Statut du paiement"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentResponse'
+        '404':
+          description: "❌ Paiement introuvable"
+
+  # ══════════════════════════════
+  # NOTIFICATION ENDPOINTS
+  # ══════════════════════════════
+  /notifications/send:
+    post:
+      tags: [📩 Notifications]
+      summary: "Envoyer une notification"
+      description: |
+        Envoie des notifications SMS, Email ou Push à une liste d'utilisateurs.
+
+        **Traitement asynchrone :** les messages sont placés dans la queue
+        **RabbitMQ** et traités par les workers dans l'ordre de priorité.
+
+        **Canaux disponibles :**
+        - `sms` → Africa's Talking Gateway
+        - `email` → SMTP SendGrid
+        - `push` → Firebase Cloud Messaging
+
+        **Permissions requises :** rôle `admin` ou `lecturer` uniquement.
+        Les étudiants ne peuvent pas envoyer de notifications.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotificationRequest'
+            example:
+              recipient_ids: ["STU-2025-001", "STU-2025-002"]
+              channel: [sms, email]
+              subject: "Confirmation d'inscription — Spring 2025"
+              message: "Votre inscription au cours CSC-3211 est confirmée."
+              priority: "normal"
+      responses:
+        '202':
+          description: "⏳ Notification mise en queue avec succès"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationResponse'
+        '400':
+          description: "❌ Données invalides"
+        '401':
+          description: "❌ Non autorisé"
+        '403':
+          description: "❌ Interdit — les étudiants ne peuvent pas envoyer de notifications"
+
+  /notifications/history:
+    get:
+      tags: [📩 Notifications]
+      summary: "Historique des notifications"
+      description: |
+        Retourne l'historique des notifications reçues par l'utilisateur connecté.
+        Filtrable par canal (SMS, Email, Push).
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: channel
+          in: query
+          description: "Filtrer par canal"
+          schema:
+            type: string
+            enum: [sms, email, push]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: "✅ Historique des notifications"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/NotificationResponse'
+                  total:
+                    type: integer
+                    example: 15
+
+# ─────────────────────────────────────────
+# TAGS ENRICHIS
+# ─────────────────────────────────────────
+tags:
+  - name: 🔐 Authentication
+    description: |
+      **Gestion des accès et tokens JWT**
+
+      Inscription, connexion et renouvellement de session.
+      Tous les tokens sont signés HS256 et expirés automatiquement.
+
+  - name: 📚 Courses
+    description: |
+      **Catalogue et inscriptions aux cours**
+
+      Consultation du catalogue, inscription aux cours, gestion des places.
+      Résultats mis en cache Redis 5 minutes pour performance optimale.
+
+  - name: 💳 Payments
+    description: |
+      **Paiements Mobile Money Cameroun**
+
+      Intégration MTN Mobile Money et Orange Money.
+      Tous les montants en XAF (Francs CFA).
+      Double chiffrement TLS + AES-256 pour la sécurité.
+
+  - name: 📩 Notifications
+    description: |
+      **Notifications multicanaux asynchrones**
+
+      SMS via Africa's Talking · Email via SMTP · Push via Firebase.
+      Traitement asynchrone via RabbitMQ pour absorber les pics de charge.
+      Réservé aux rôles admin et lecturer.

@@ -1,0 +1,468 @@
+# ─────────────────────────────────────────
+# kubernetes/deployment.yml
+# Kubernetes Config — Smart Campus Platform
+# ICT University Cameroun — Dr Fosso
+# Supporte 10 000 utilisateurs simultanés
+# ─────────────────────────────────────────
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: campus-production
+  labels:
+    project: smart-campus
+    university: ict-cameroun
+
+---
+# ══════════════════════════════
+# CONFIGMAP — Variables globales
+# ══════════════════════════════
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: campus-config
+  namespace: campus-production
+data:
+  NODE_ENV: "production"
+  RABBITMQ_HOST: "rabbitmq-service"
+  REDIS_HOST: "redis-service"
+  REDIS_PORT: "6379"
+
+---
+# ══════════════════════════════
+# SECRET — Données sensibles
+# ══════════════════════════════
+apiVersion: v1
+kind: Secret
+metadata:
+  name: campus-secrets
+  namespace: campus-production
+type: Opaque
+data:
+  # Base64 encoded values (à remplacer par vraies valeurs)
+  DB_PASSWORD: Y2FtcHVzX3NlY3JldA==
+  JWT_SECRET: and0X3N1cGVyX3NlY3JldF9pY3Q=
+  MTN_API_KEY: bXRuX2FwaV9rZXlfY2FtZXJvdW4=
+  ORANGE_API_KEY: b3JhbmdlX2FwaV9rZXlfY2FtZXJvdW4=
+  REDIS_PASSWORD: cmVkaXNfc2VjcmV0
+  RABBITMQ_PASSWORD: cmFiYml0X3NlY3JldA==
+
+---
+# ══════════════════════════════
+# USER SERVICE — Deployment
+# ══════════════════════════════
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-service
+  namespace: campus-production
+  labels:
+    app: user-service
+    tier: backend
+spec:
+  replicas: 3                    # 3 instances pour la haute dispo
+  selector:
+    matchLabels:
+      app: user-service
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1          # Toujours 2 instances actives
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: user-service
+    spec:
+      containers:
+        - name: user-service
+          image: ghcr.io/ict-university/smart-campus/user-service:latest
+          ports:
+            - containerPort: 3001
+          env:
+            - name: PORT
+              value: "3001"
+            - name: DB_HOST
+              value: "user-db-service"
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: campus-secrets
+                  key: JWT_SECRET
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3001
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 3001
+            initialDelaySeconds: 5
+            periodSeconds: 10
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: user-service
+  namespace: campus-production
+spec:
+  selector:
+    app: user-service
+  ports:
+    - protocol: TCP
+      port: 3001
+      targetPort: 3001
+  type: ClusterIP
+
+---
+# ══════════════════════════════
+# COURSE SERVICE — Deployment
+# ══════════════════════════════
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: course-service
+  namespace: campus-production
+  labels:
+    app: course-service
+spec:
+  replicas: 5                    # Plus d'instances : service le plus sollicité
+  selector:
+    matchLabels:
+      app: course-service
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 2
+  template:
+    metadata:
+      labels:
+        app: course-service
+    spec:
+      containers:
+        - name: course-service
+          image: ghcr.io/ict-university/smart-campus/course-service:latest
+          ports:
+            - containerPort: 3002
+          env:
+            - name: PORT
+              value: "3002"
+            - name: DB_HOST
+              value: "course-db-service"
+            - name: REDIS_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: campus-config
+                  key: REDIS_HOST
+            - name: RABBITMQ_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: campus-config
+                  key: RABBITMQ_HOST
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "200m"
+            limits:
+              memory: "512Mi"
+              cpu: "1000m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3002
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 3002
+            initialDelaySeconds: 5
+            periodSeconds: 10
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: course-service
+  namespace: campus-production
+spec:
+  selector:
+    app: course-service
+  ports:
+    - protocol: TCP
+      port: 3002
+      targetPort: 3002
+  type: ClusterIP
+
+---
+# ══════════════════════════════
+# PAYMENT SERVICE — Deployment
+# ══════════════════════════════
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-service
+  namespace: campus-production
+  labels:
+    app: payment-service
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: payment-service
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0          # Zéro downtime pour les paiements
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: payment-service
+    spec:
+      containers:
+        - name: payment-service
+          image: ghcr.io/ict-university/smart-campus/payment-service:latest
+          ports:
+            - containerPort: 3003
+          env:
+            - name: PORT
+              value: "3003"
+            - name: DB_HOST
+              value: "payment-db-service"
+            - name: MTN_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: campus-secrets
+                  key: MTN_API_KEY
+            - name: ORANGE_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: campus-secrets
+                  key: ORANGE_API_KEY
+            - name: PAYMENT_ENCRYPTION
+              value: "AES256"
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "200m"
+            limits:
+              memory: "512Mi"
+              cpu: "1000m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3003
+            initialDelaySeconds: 15
+            periodSeconds: 20
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: payment-service
+  namespace: campus-production
+spec:
+  selector:
+    app: payment-service
+  ports:
+    - protocol: TCP
+      port: 3003
+      targetPort: 3003
+  type: ClusterIP
+
+---
+# ══════════════════════════════
+# NOTIFICATION SERVICE
+# ══════════════════════════════
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-service
+  namespace: campus-production
+  labels:
+    app: notification-service
+spec:
+  replicas: 4                    # 4 workers pour absorber les pics SMS
+  selector:
+    matchLabels:
+      app: notification-service
+  template:
+    metadata:
+      labels:
+        app: notification-service
+    spec:
+      containers:
+        - name: notification-service
+          image: ghcr.io/ict-university/smart-campus/notification-service:latest
+          ports:
+            - containerPort: 3004
+          env:
+            - name: PORT
+              value: "3004"
+            - name: RABBITMQ_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: campus-config
+                  key: RABBITMQ_HOST
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "500m"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: notification-service
+  namespace: campus-production
+spec:
+  selector:
+    app: notification-service
+  ports:
+    - protocol: TCP
+      port: 3004
+      targetPort: 3004
+  type: ClusterIP
+
+---
+# ══════════════════════════════
+# AUTO-SCALING — HPA
+# Gestion des pics d'inscription
+# 10 000 utilisateurs simultanés
+# ══════════════════════════════
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: course-service-hpa
+  namespace: campus-production
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: course-service
+  minReplicas: 5
+  maxReplicas: 20                # Monte jusqu'à 20 instances en pic
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70 # Scale si CPU > 70%
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: notification-service-hpa
+  namespace: campus-production
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: notification-service
+  minReplicas: 4
+  maxReplicas: 15
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: user-service-hpa
+  namespace: campus-production
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: user-service
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+
+---
+# ══════════════════════════════
+# INGRESS — Point d'entrée HTTPS
+# ══════════════════════════════
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: campus-ingress
+  namespace: campus-production
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/rate-limit: "100"          # Rate limiting
+    nginx.ingress.kubernetes.io/rate-limit-window: "1m"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"     # TLS auto
+spec:
+  tls:
+    - hosts:
+        - api.smartcampus.cm
+      secretName: campus-tls-cert
+  rules:
+    - host: api.smartcampus.cm
+      http:
+        paths:
+          - path: /v1/auth
+            pathType: Prefix
+            backend:
+              service:
+                name: user-service
+                port:
+                  number: 3001
+          - path: /v1/courses
+            pathType: Prefix
+            backend:
+              service:
+                name: course-service
+                port:
+                  number: 3002
+          - path: /v1/payments
+            pathType: Prefix
+            backend:
+              service:
+                name: payment-service
+                port:
+                  number: 3003
+          - path: /v1/notifications
+            pathType: Prefix
+            backend:
+              service:
+                name: notification-service
+                port:
+                  number: 3004
