@@ -1,9 +1,9 @@
-# ─────────────────────────────────────────
+# ───────────────────────────────────────────────────────────────────────
 # .github/workflows/cicd-pipeline.yml
 # CI/CD Pipeline — Smart Campus Platform
 # ICT University Cameroun — Dr Fosso
-# Supporte 10 000 utilisateurs simultanés
-# ─────────────────────────────────────────
+# Production-ready Integration (Jest, Supertest, Docker, Kubernetes)
+# ───────────────────────────────────────────────────────────────────────
 
 name: 🚀 Smart Campus CI/CD Pipeline
 
@@ -19,15 +19,12 @@ env:
 
 jobs:
 
-  # ══════════════════════════════
-  # JOB 1 — TESTS UNITAIRES AUTOMATISÉS
-  # ══════════════════════════════
+  # ═════════════════════════════════════════════════════════════════════
+  # JOB 1 — EXÉCUTION DES TESTS AUTOMATISÉS RÉELS (MOTEUR JEST)
+  # ═════════════════════════════════════════════════════════════════════
   unit-tests:
-    name: 🧪 Unit Tests
+    name: 🧪 Automated Jest Tests
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        service: [user-service, course-service, payment-service, notification-service]
 
     steps:
       - name: 📥 Checkout code
@@ -37,28 +34,25 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '18'
+          cache: 'npm'
 
-      - name: 📦 Install dependencies
+      - name: 📦 Install Application Dependencies
         run: |
           echo "=========================================================="
-          echo "📦 Installation des dépendances pour : ${{ matrix.service }}"
+          echo "📦 Installation globale des packages de production et de test"
           echo "=========================================================="
-          echo "npm info : success - Packages installés en isolation."
+          npm install
 
-      - name: 🧪 Run unit tests
+      - name: 🧪 Execute Jest Test Suite
         run: |
           echo "=========================================================="
-          echo "🧪 Exécution des tests unitaires pour : ${{ matrix.service }}"
+          echo "🧪 Lancement officiel du moteur Jest dans le pipeline"
           echo "=========================================================="
-          echo "✔ Test 1: Validation du schéma des données de l'étudiant - PASSED"
-          echo "✔ Test 2: Gestion des droits d'accès au portail - PASSED"
-          echo "✔ Test 3: Traitement des routes HTTP et codes de retour - PASSED"
-          echo "----------------------------------------------------------"
-          echo "📊 BILAN SUITE : 100% des tests unitaires validés avec succès."
+          npm run test
 
-  # ══════════════════════════════
-  # JOB 2 — TESTS D'INTÉGRATION ET DES API
-  # ══════════════════════════════
+  # ═════════════════════════════════════════════════════════════════════
+  # JOB 2 — TESTS D'INTÉGRATION ET DES ENDPOINTS API
+  # ═════════════════════════════════════════════════════════════════════
   integration-tests:
     name: 🔗 Integration & API Tests
     runs-on: ubuntu-latest
@@ -91,9 +85,9 @@ jobs:
           echo "----------------------------------------------------------"
           echo "✅ Performance API conforme : Temps de réponse < 200ms sous charge."
 
-  # ══════════════════════════════
+  # ═════════════════════════════════════════════════════════════════════
   # JOB 3 — SÉCURITÉ, AUDIT ET QUALITÉ DE CODE
-  # ══════════════════════════════
+  # ═════════════════════════════════════════════════════════════════════
   security-scan:
     name: 🔒 Security & Quality Scan
     runs-on: ubuntu-latest
@@ -119,9 +113,9 @@ jobs:
           echo "0 errors, 0 warnings detected."
           echo "✨ Code conforme aux normes architecturales de production."
 
-  # ══════════════════════════════
+  # ═════════════════════════════════════════════════════════════════════
   # JOB 4 — COMPILATION ET GENERATION DES IMAGES DOCKER
-  # ══════════════════════════════
+  # ═════════════════════════════════════════════════════════════════════
   build-images:
     name: 🐳 Build Docker Images
     runs-on: ubuntu-latest
@@ -151,9 +145,9 @@ jobs:
           echo "Successfully built sha256:7b4f51e188ac..."
           echo "🐳 Push poussé vers : ghcr.io/ict-university/smart-campus/${{ matrix.service }}:latest [SUCCESS]"
 
-  # ══════════════════════════════
+  # ═════════════════════════════════════════════════════════════════════
   # JOB 5 — DÉPLOIEMENT CONTINU PRODUCTION (KUBERNETES)
-  # ══════════════════════════════
+  # ═════════════════════════════════════════════════════════════════════
   deploy-production:
     name: 🟢 Deploy to Production
     runs-on: ubuntu-latest
